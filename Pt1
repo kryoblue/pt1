@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Posture Tracker</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; background: #111; color: white; text-align: center; }
+    canvas { position: absolute; top: 0; left: 0; }
+    video { visibility: hidden; position: absolute; top: 0; left: 0; }
+    #scoreDisplay { position: absolute; top: 10px; left: 10px; font-size: 18px; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+</head>
+<body>
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
+  <div id="scoreDisplay">Loading...</div>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const scoreDisplay = document.getElementById('scoreDisplay');
+
+    async function setupCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+      await video.play();
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    }
+
+    const pose = new Pose.Pose({
+      locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+    });
+
+    pose.setOptions({
+      modelComplexity: 1,
+      smoothLandmarks: true,
+      enableSegmentation: false,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    pose.onResults(onPoseResults);
+
+    function onPoseResults(results) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
+      const landmarks = results.poseLandmarks;
+      if (!landmarks) return;
+
+      const lShoulder = landmarks[11];
+      const rShoulder = landmarks[12];
+      const nose = landmarks[0];
+
+      const shoulderDiff = Math.abs(lShoulder.y - rShoulder.y) * canvas.height;
+      const headTilt = (nose.y - (lShoulder.y + rShoulder.y) / 2) * canvas.height;
+
+      for (let lm of landmarks) {
+        ctx.beginPath();
+        ctx.arc(lm.x * canvas.width, lm.y * canvas.height, 5, 0, 2 * Math.PI);
+        ctx.fillStyle = 'red';
+        ctx.fill();
+      }
+
+      let score = 10;
+      if (shoulderDiff > 20) score -= 2;
+      if (headTilt > 30) score -= 2;
+
+      scoreDisplay.textContent = `Posture Score: ${score}/10\nShoulder Diff: ${shoulderDiff.toFixed(1)} px\nHead Tilt: ${headTilt.toFixed(1)} px`;
+    }
+
+    async function startApp() {
+      await setupCamera();
+      const camera = new CameraUtils.Camera(video, {
+        onFrame: async () => await pose.send({ image: video }),
+        width: video.videoWidth,
+        height: video.videoHeight
+      });
+      camera.start();
+    }
+
+    startApp();
+  </script>
+</body>
+</html>
